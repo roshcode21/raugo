@@ -2,285 +2,157 @@
 
 **Corte: 12/09/2026**
 
-Este documento define la dirección técnica de RauGo. El objetivo no es convertir el sitio en un conjunto de páginas sueltas, sino construir una tienda de productos digitales con administración real, entrega segura, pagos, clientes, órdenes, analítica y crecimiento sin sacrificar el diseño del storefront.
+RauGo no necesita empezar como un “CRM gigante”. Necesita un storefront excelente y un back office de comercio digital hecho para su operación. El sistema completo combina catálogo, archivos, pagos, órdenes, clientes, descargas, contenido, marketing, analítica y facturación sin cargar desde el día uno con módulos de retail físico que no aportan valor.
 
-## 1. Qué sistema estamos construyendo
-
-No es únicamente un CRM. El ecosistema completo combina varias capas:
-
-- **Storefront** — lo que ve y usa el cliente.
-- **Commerce engine** — carrito, precios, promociones, pagos, órdenes, reembolsos y estados.
-- **PIM / catálogo** — productos, categorías, colecciones, tags, variantes, bundles y metadatos.
-- **DAM / archivos** — previews, mockups y archivos maestros descargables.
-- **OMS** — gestión de órdenes, pagos, devoluciones y entrega.
-- **Customer account** — historial de compras y biblioteca de descargas.
-- **CMS** — textos editoriales, home, banners, páginas informativas y SEO.
-- **CRM / marketing** — segmentación, newsletters y automatizaciones. Puede crecer después.
-- **Analytics** — adquisición, navegación, embudo, ventas y producto.
-- **Fiscal** — datos para facturación CFDI y conciliación.
-
-## 2. Arquitectura recomendada
+## Dirección técnica recomendada
 
 ### Storefront
 
-**Next.js + TypeScript**, desplegado en Vercel.
+**Next.js + TypeScript** con diseño propio y mobile-first. El objetivo es conservar libertad visual total, SEO, performance, previews de cada cambio y componentes reutilizables.
 
-Razones:
-- control visual completo;
-- mobile-first real;
-- excelente SEO;
-- renderizado rápido;
-- componentes reutilizables;
-- previews automáticos por cada cambio del repositorio;
-- no amarra la identidad de RauGo a una plantilla de tienda.
+### Backend, base de datos y administración
 
-### Commerce / back office
+**Supabase / PostgreSQL** como fuente de verdad para catálogo, usuarios, órdenes, derechos de descarga, cupones, contenido y eventos de negocio.
 
-**Medusa 2** como primera opción para el backend de comercio.
+Para RauGo esta ruta es más proporcionada que instalar desde el día uno una plataforma de comercio completa. No hay envíos físicos ni inventario tradicional y el catálogo digital puede modelarse con mucha precisión. Construiremos un `/admin` privado sólo con las funciones que RauGo realmente usa.
 
-Medusa ya resuelve buena parte de lo difícil: catálogo, carrito, precios, promociones, clientes, órdenes y administración. Para productos digitales se agrega el módulo de archivos y fulfillment digital. Así evitamos programar desde cero lógica comercial que parece sencilla hasta que llegan reembolsos, bundles, cupones, pagos duplicados, estados incompletos y conciliaciones.
-
-Alternativa ligera si el catálogo permanece pequeño: **Supabase + lógica custom**. Es más barato al inicio, pero nos hace responsables de construir casi todo el commerce engine.
-
-### Base de datos
-
-**PostgreSQL**.
-
-Debe ser la fuente de verdad para productos, clientes, órdenes, derechos de descarga, cupones y eventos de negocio.
+**Medusa 2 queda como ruta de escala**, no como dependencia obligatoria inicial. Si el catálogo, equipo, canales, promociones o reglas comerciales se vuelven mucho más complejos, su commerce engine y admin pueden incorporarse sin sacrificar el storefront.
 
 ### Archivos digitales
 
 **Cloudflare R2** para archivos maestros privados.
 
-Nunca se debe publicar el ZIP/PDF/PNG maestro con una URL pública permanente. La descarga debe generarse sólo después de validar una compra y usar URLs firmadas o un endpoint de descarga que expire.
+Nunca publicar el ZIP/PDF/PNG comprado con una URL pública permanente. La base de datos guarda metadata y object keys; R2 guarda los bytes. La entrega usa URLs firmadas de corta duración después de validar el derecho de descarga.
 
-Separar:
-- `public-assets` — thumbnails, mockups, imágenes para la tienda;
-- `private-products` — archivos que se compran;
-- `product-versions` — historial de versiones de un archivo.
+Separar al menos:
+- `public-assets` — thumbnails, mockups y previews;
+- `private-products` — archivos comprables;
+- `product-versions` — versiones históricas y actualizaciones.
 
 ### Pagos
 
-Implementar primero **un proveedor principal** y preparar una interfaz para añadir un segundo.
+**Stripe como proveedor inicial recomendado** por la calidad del checkout, API, webhooks y soporte para tarjetas, OXXO y métodos locales. Preparar el código con una capa de `payment_provider` para poder añadir Mercado Pago sin reescribir órdenes.
 
-Recomendación inicial:
-1. **Mercado Pago** si el volumen principal está en México y queremos OXXO / ecosistema local.
-2. **Stripe** si priorizamos checkout muy pulido, tarjetas, wallets y expansión internacional.
-3. Añadir el segundo proveedor después de estabilizar órdenes y fulfillment.
+Mercado Pago sigue siendo una excelente segunda integración por familiaridad local y ecosistema mexicano. PayPal sólo se añadiría si los datos de clientes muestran demanda real.
 
-Nunca guardar datos de tarjeta en RauGo. El proveedor de pagos debe manejar PCI y la tokenización.
+Nunca guardar tarjetas ni datos sensibles de pago en RauGo. El PSP debe encargarse de PCI, tokenización y autenticación.
 
-### Correo transaccional
+### Email
 
-**Resend** para:
-- confirmación de orden;
-- pago aprobado;
-- enlace de descarga;
-- recuperación de acceso;
-- reembolso;
-- aviso de actualización de archivo.
+**Resend** para confirmación de orden, pago aprobado, descarga, recuperación de acceso, reembolso y actualización de producto. Marketing y correo transaccional deben conservar listas y permisos separados.
 
-El newsletter de marketing debe mantenerse conceptualmente separado del correo transaccional.
+### Seguridad
 
-### Seguridad / antispam
+- secretos sólo en variables de entorno;
+- verificación criptográfica de webhooks;
+- idempotencia de eventos de pago;
+- Row Level Security en datos privados;
+- URLs firmadas para descargas;
+- rate limiting en login y descargas;
+- validación MIME/tamaño de archivos al subir;
+- Cloudflare Turnstile en formularios sensibles;
+- log de auditoría para acciones del admin.
 
-- Cloudflare Turnstile en login, registro y formularios sensibles.
-- Verificación de firma en todos los webhooks.
-- Idempotencia para impedir órdenes o entregas duplicadas.
-- Rate limiting en login y descargas.
-- Row-level permissions / roles en back office.
-- Secretos exclusivamente en variables de entorno, nunca en GitHub.
+## Qué sistema estamos construyendo
 
-### Analítica
+No es sólo CRM. Las piezas reales son:
 
-Inicio:
-- analítica de ecommerce;
-- conversión por producto;
-- add-to-cart → checkout → pago;
-- búsquedas sin resultado;
-- productos más vistos;
-- origen de tráfico;
-- cupones;
-- abandono.
+- **Storefront** — sitio público.
+- **Catálogo / PIM** — productos, categorías, colecciones, tags, bundles y precios.
+- **DAM** — previews y archivos maestros.
+- **Commerce** — carrito, checkout, promociones, pagos y reembolsos.
+- **OMS** — órdenes y estados.
+- **Entitlements** — quién puede descargar qué y bajo qué reglas.
+- **Customer account** — compras y biblioteca.
+- **CMS** — home, banners, FAQ, páginas legales y SEO.
+- **CRM / marketing** — newsletter, segmentación y campañas.
+- **Analytics** — navegación, conversión y ventas.
+- **Fiscal** — solicitud y relación de CFDI con la orden.
 
-PostHog es una opción útil si queremos eventos + funnels + session replay sin mezclarlo con la lógica transaccional.
+## Modelo de producto digital
 
-## 3. Modelo de producto digital
+Un producto no puede reducirse a `nombre + precio + archivo`.
 
-Un producto no debe ser sólo `nombre + precio + archivo`.
+Debe contemplar título, slug, descripción corta y larga, estado, categoría, colección, tags, precio, moneda, precio anterior opcional, cover, galería, tipo de archivo, páginas/dimensiones, compatibilidad, licencia, instrucciones, archivos incluidos, versión, fecha de actualización, relacionados, SEO, featured, orden manual y composición de bundle cuando aplique.
 
-Campos base:
-- título;
-- slug;
-- descripción corta y larga;
-- estado: draft / active / archived;
-- categoría;
-- colección;
-- tags;
-- precio y moneda;
-- compare-at price opcional;
-- cover;
-- galería / mockups;
-- tipo de archivo;
-- dimensiones / páginas / formato;
-- compatibilidad;
-- licencia de uso;
-- instrucciones;
-- archivos incluidos;
-- versión del archivo;
-- fecha de actualización;
-- productos relacionados;
-- SEO title / description;
-- featured;
-- orden manual;
-- bundle components, si aplica.
+### Inventario digital
 
-### Inventario en productos digitales
+No hay stock físico salvo que queramos imponer un límite comercial. El “inventario” real controla disponibilidad, lanzamiento, retiro, máximo de ventas opcional, licencia, límite de descargas, vigencia del enlace, versión del archivo y derecho a futuras actualizaciones.
 
-No existe stock físico salvo que queramos imponer escasez comercial. En su lugar debemos controlar:
-- disponibilidad;
-- fecha de lanzamiento;
-- retiro de catálogo;
-- cantidad máxima de ventas opcional;
-- licencia;
-- límite de descargas opcional;
-- expiración de enlaces;
-- versión del archivo;
-- derecho a actualizaciones futuras.
+## Flujo de compra correcto
 
-## 4. Flujo de una compra
+1. Cliente arma carrito.
+2. Backend calcula precio, descuentos e impuestos aplicables.
+3. RauGo crea una orden `pending`.
+4. Se crea la sesión de pago en el proveedor.
+5. El cliente paga fuera o dentro de un componente seguro del PSP.
+6. El PSP envía un webhook firmado.
+7. El backend verifica el evento y marca la orden `paid` de manera idempotente.
+8. Se crean derechos de descarga para cada producto comprado.
+9. Se envía el correo transaccional.
+10. El cliente descarga desde un enlace temporal o desde `Mi biblioteca`.
+11. Reembolsos o contracargos actualizan el derecho de descarga según la política vigente.
 
-1. Cliente agrega producto al carrito.
-2. Backend calcula precios y descuentos.
-3. Se crea una orden `pending` antes del pago.
-4. Se crea la sesión/preferencia con Stripe o Mercado Pago.
-5. Cliente paga en el checkout seguro.
-6. El proveedor manda un **webhook firmado**.
-7. Backend confirma el estado consultando al proveedor y marca la orden `paid`.
-8. Se generan los derechos de descarga por cada line item.
-9. Se manda el email transaccional.
-10. El cliente puede entrar a `Mi biblioteca` y volver a descargar según las reglas.
-11. Si hay reembolso o contracargo, el derecho de descarga cambia de estado según política.
+La redirección del navegador nunca es prueba suficiente de pago.
 
-El navegador del cliente nunca debe ser la fuente de verdad para decidir que un pago fue exitoso.
-
-## 5. Back office que necesitamos
+## Back office
 
 ### Dashboard
-- ventas hoy / semana / mes;
-- órdenes recientes;
-- productos top;
-- pagos fallidos;
-- reembolsos;
-- incidencias de descarga.
+Ventas hoy/semana/mes, órdenes recientes, productos top, pagos fallidos, reembolsos e incidencias de descarga.
 
 ### Productos
-- alta / edición / duplicado;
-- borrador y publicación;
-- carga de portada y galería;
-- carga de archivos maestros;
-- versiones;
-- bundles;
-- categorías / colecciones / tags;
-- precios y descuentos;
-- SEO.
+Alta, edición, duplicado, draft/publicado, categorías, colecciones, precios, cupones, SEO, portada, galería, archivo maestro, versiones y bundles.
 
 ### Órdenes
-- estado comercial;
-- estado del pago;
-- proveedor de pago;
-- reembolso total o parcial;
-- reenvío de correo;
-- regenerar descarga;
-- notas internas;
-- timeline de eventos.
+Estado, pago, proveedor, timeline, reembolso, reenvío de email, regeneración de acceso y notas internas.
 
 ### Clientes
-- perfil;
-- compras;
-- biblioteca;
-- soporte;
-- reembolsos;
-- consentimiento de marketing.
+Perfil, compras, descargas, reembolsos, soporte y consentimiento de marketing.
 
-### Marketing
-- códigos de descuento;
-- campañas;
-- productos destacados;
-- banners;
-- colecciones temporales;
-- newsletter.
-
-### Contenido
-- home;
-- Sobre mí;
-- FAQ;
-- políticas;
-- bloques promocionales.
+### Contenido y marketing
+Home, banners, productos destacados, FAQ, páginas informativas, códigos, newsletter y campañas.
 
 ### Fiscal
-- solicitud de factura;
-- RFC y datos fiscales;
-- relación orden ↔ CFDI;
-- estado de factura;
-- XML/PDF cuando exista integración.
+Solicitud de factura, RFC/datos fiscales, relación orden–CFDI, estado y XML/PDF cuando exista integración automática.
 
-## 6. Página / rutas objetivo
+## Rutas objetivo
 
-- `/` Home
-- `/tienda`
-- `/categoria/[slug]`
-- `/producto/[slug]`
-- `/carrito`
-- `/checkout`
-- `/gracias/[order]`
-- `/cuenta`
-- `/cuenta/compras`
-- `/cuenta/descargas`
-- `/buscar`
-- `/sobre-mi`
-- `/contacto`
-- `/preguntas-frecuentes`
-- `/licencias`
-- `/privacidad`
-- `/terminos`
-- `/reembolsos`
-- `/facturacion`
+`/` · `/tienda` · `/categoria/[slug]` · `/producto/[slug]` · `/carrito` · `/checkout` · `/gracias/[order]` · `/cuenta` · `/cuenta/compras` · `/cuenta/descargas` · `/buscar` · `/sobre-mi` · `/contacto` · `/preguntas-frecuentes` · `/licencias` · `/privacidad` · `/terminos` · `/reembolsos` · `/facturacion` · `/admin`
 
-## 7. Fases
+## Fases
 
 ### Fase 0 — prototipo visual
-Home responsive en HTML/CSS/JS para fijar composición, escala, jerarquía y comportamiento móvil.
+Home responsive en HTML/CSS/JS para fijar jerarquía, composición y comportamiento móvil.
 
-### Fase 1 — design system + storefront real
-Migrar el prototipo a componentes de Next.js. Definir tokens, tipografía, spacing, cards, botones, forms, estados y accesibilidad.
+### Fase 1 — design system y storefront real
+Migrar a Next.js, definir tokens, componentes, estados, accesibilidad y performance.
 
-### Fase 2 — catálogo y back office
-Commerce engine, productos, categorías, assets y administración.
+### Fase 2 — catálogo y admin
+Supabase, productos, categorías, assets, versiones y administración privada.
 
-### Fase 3 — checkout y fulfillment
-Integrar primer proveedor de pago, webhooks, órdenes, emails y descarga privada.
+### Fase 3 — checkout y entrega
+Stripe, webhooks, órdenes, correo y descargas privadas.
 
-### Fase 4 — cuentas y biblioteca
-Registro/login, historial, re-descarga y actualizaciones.
+### Fase 4 — cuentas
+Login, historial, biblioteca y re-descarga.
 
-### Fase 5 — fiscal + marketing + analytics
-Facturación, newsletter, cupones, eventos y dashboards.
+### Fase 5 — fiscal, marketing y analytics
+Facturación, cupones, newsletter, eventos y dashboards.
 
 ### Fase 6 — hardening
-Pruebas E2E, performance, accesibilidad, backups, antifraude, errores, observabilidad y políticas.
+Pruebas E2E, backups, observabilidad, antifraude, accesibilidad, performance y políticas.
 
-## 8. Decisiones que faltan antes de producción
+## Decisiones antes de producción
 
-- ¿Quién es legalmente el vendedor y bajo qué RFC se cobra?
-- ¿El precio mostrado incluye IVA?
-- ¿Sólo México o venta internacional desde el lanzamiento?
-- ¿Se requiere factura automática o sólo bajo solicitud?
-- ¿Descarga ilimitada para compradores o límites?
-- ¿Los compradores reciben actualizaciones futuras del archivo?
-- ¿Política exacta de reembolso para bienes digitales?
-- ¿Existe licencia personal, comercial o ambas?
-- ¿Habrá cuentas obligatorias o compra como invitado?
-- ¿Mercado Pago, Stripe o ambos al lanzamiento?
+- vendedor legal / RFC;
+- precios con o sin IVA;
+- México solamente o internacional;
+- factura automática o bajo solicitud;
+- descarga ilimitada o limitada;
+- acceso a futuras versiones;
+- licencia personal/comercial;
+- política de reembolso digital;
+- cuenta obligatoria o guest checkout;
+- métodos de pago del lanzamiento.
 
-Estas decisiones afectan la base de datos y el flujo de pago, así que deben cerrarse antes de conectar producción.
+Estas decisiones deben cerrarse antes de conectar credenciales reales y cobrar producción.
